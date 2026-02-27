@@ -1,0 +1,13 @@
+{
+  "name": "my-plugins",
+  "owner": {
+    "name": "Zewei Zhuang"
+  },
+  "plugins": [
+    {
+      "name": "resume-interview-evaluator-for-program",
+      "source": "./resume-interview-evaluator-for-program",
+      "description": "A plugin to evaluate the resume and interview for program candidates"
+    }
+  ]
+}
