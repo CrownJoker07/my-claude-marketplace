@@ -1,0 +1,8 @@
+{
+    "name": "resume-interview-evaluator-for-program",
+    "description": "A plugin to evaluate the resume and interview for program candidates",
+    "version": "1.0.0",
+    "author": {
+        "name": "Zewei Zhuang"
+    }
+}
