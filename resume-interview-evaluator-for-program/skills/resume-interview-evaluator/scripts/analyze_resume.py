@@ -333,18 +333,30 @@ def extract_projects(text: str) -> List[Dict]:
         if len(proj_text.strip()) < 20:
             continue
 
+        # 尝试多种方式提取项目名称
+        project_name = None
+
+        # 方式1：匹配 "项目名称：XXX"、"项目名：XXX"、《XXX》、【XXX】格式
+        name_match = re.search(r'(?:项目名称[：:]\s*|项目名[：:]\s*|Project\s*Name[：:]\s*|《|【)([^\n【】》]+)', proj_text, re.IGNORECASE)
+        if name_match:
+            project_name = name_match.group(1).strip()
+        else:
+            # 方式2：取项目文本的第一行作为项目名（如果不是分隔符）
+            first_line = proj_text.strip().split('\n')[0].strip()
+            # 过滤掉纯数字、分隔符等无意义内容
+            if first_line and len(first_line) > 2 and len(first_line) < 50:
+                # 去除常见的列表标记（如 "1. ", "- ", "◆ " 等）
+                cleaned_name = re.sub(r'^[\d\s\.\-\◆\●\*\[\(]+', '', first_line)
+                if cleaned_name and len(cleaned_name) > 2:
+                    project_name = cleaned_name
+
         project = {
-            'name': f'项目{i+1}',
+            'name': project_name or f'项目{i+1}',
             'type': '',
             'role': '',
             'description': proj_text.strip()[:500],
             'tech_stack': []
         }
-
-        # 提取项目名称
-        name_match = re.search(r'(?:项目名称[：:]\s*|《|【)([^\n【】》]+)', proj_text)
-        if name_match:
-            project['name'] = name_match.group(1).strip()
 
         # 提取项目类型
         if any(kw in proj_text for kw in ['2D', '横版', '平台']):
@@ -687,10 +699,6 @@ def generate_question_list(parsed_data: Dict, analysis: Dict, output_dir: str) -
     lines.append("- [ ] 为什么来面试这个岗位？")
     lines.append("- [ ] 为什么选择我们公司/项目组？")
     lines.append("")
-    lines.append("**评价要点**:")
-    lines.append("- 职业规划清晰度: ___")
-    lines.append("- 表达能力: ___")
-    lines.append("")
 
     # 阶段2: 项目经历深挖
     lines.append("## 阶段2: 项目经历深挖 (20分钟)")
@@ -727,13 +735,6 @@ def generate_question_list(parsed_data: Dict, analysis: Dict, output_dir: str) -
         lines.append("- [ ] 项目中遇到的最大技术挑战是什么？如何解决的？")
         lines.append("- [ ] 如果重新设计这个项目，会做哪些改进？")
         lines.append("- [ ] 如何保证代码质量和可维护性？")
-        lines.append("")
-
-        lines.append("**评价记录**:")
-        lines.append("- 技术深度: ___/30")
-        lines.append("- 项目真实性: ___/25")
-        lines.append("- 问题解决能力: ___/25")
-        lines.append("- 技术视野: ___/20")
         lines.append("")
 
     # 阶段3: 基础能力考察
@@ -795,7 +796,6 @@ def generate_question_list(parsed_data: Dict, analysis: Dict, output_dir: str) -
     lines.append("## 阶段5: 候选人提问 (3分钟)")
     lines.append("- [ ] 给候选人提问机会")
     lines.append("- **候选人问题**: ___")
-    lines.append("- **评价**: ___")
     lines.append("")
 
     # 评分记录表
@@ -810,21 +810,6 @@ def generate_question_list(parsed_data: Dict, analysis: Dict, output_dir: str) -
     lines.append("| 发展潜力 | 10% | ___ | 学习能力/视野 |")
     lines.append("| 文化匹配 | 5% | ___ | 价值观/态度 |")
     lines.append("| **总分** | **100%** | ___ | |")
-    lines.append("")
-
-    # 推荐等级
-    lines.append("### 推荐等级")
-    lines.append("- [ ] A级（强烈推荐）总分≥85，无明显短板")
-    lines.append("- [ ] B级（推荐）总分70-84，有培养潜力")
-    lines.append("- [ ] C级（谨慎考虑）总分60-69，有风险点")
-    lines.append("- [ ] D级（不推荐）总分<60")
-    lines.append("")
-
-    # 面试官总体评价
-    lines.append("### 总体评价")
-    lines.append("- **优势亮点**: ___")
-    lines.append("- **风险点**: ___")
-    lines.append("- **推荐意见**: ___")
     lines.append("")
 
     lines.append("---")
@@ -906,8 +891,8 @@ def main():
     print(f"   ✓ 识别技能: {len(analysis['skill_levels'])} 项")
     print(f"   ✓ 推荐等级: {analysis['recommendation_level']}级")
 
-    # 确定输出目录：优先使用 -o 参数，否则使用 PDF 所在目录
-    output_dir = args.output_dir or os.path.dirname(os.path.abspath(args.pdf_path))
+    # 始终使用 PDF 所在目录作为输出目录
+    output_dir = os.path.dirname(os.path.abspath(args.pdf_path))
 
     # 步骤4: 生成技能评估报告
     print("\n📝 正在生成技能评估报告...")
