@@ -401,7 +401,7 @@ def interactive_mode():
         risks = ["需进一步验证"]
 
     print("\n" + "-" * 40)
-    print("推荐意见（不含薪资建议，薪资由HR另行沟通）：")
+    print("推荐意见：")
     print("-" * 40)
     print("示例: 建议录用为Unity实习生，有转正机会，可长期培养")
     recommendation = input().strip() or "建议进入下一轮面试"

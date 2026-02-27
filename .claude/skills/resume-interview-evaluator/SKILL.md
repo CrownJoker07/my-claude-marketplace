@@ -8,32 +8,77 @@ description: 游戏开发工程师简历分析与面试评估工具。用于系�
 ## 概述
 
 本Skill提供完整的游戏开发工程师面试评估工作流，包括：
-- 简历深度分析与风险点识别
-- 结构化面试问题生成
+- **从PDF简历自动解析关键信息**（姓名、技能、项目等）
+- **自动生成技能评估报告** - 分析候选人技术能力和风险点
+- **自动生成面试问题清单** - 根据简历内容定制针对性问题
 - 面试评分与评估报告输出
 - **自动生成面试评估报告 MD 文件**
 
 **报告特点**：
+- 从PDF简历自动提取信息，无需手动输入
+- 生成两个独立文件：技能评估报告 + 面试问题清单
 - 面试评估部分与面试过程记录使用 `---` 分割线分隔
 - 项目经历深挖根据简历实际项目生成针对性问题
 - 基础能力考察根据候选人技术栈定制问题
-- 推荐意见不含薪资建议（薪资由HR另行沟通）
 
 ---
 
 ## 快速开始
 
-### 使用脚本生成报告
+### 方式1：从PDF简历自动生成（推荐）
+
+使用 `analyze_resume.py` 脚本从PDF简历自动提取信息并生成两个文件：
 
 ```bash
-# 方式1：交互模式（推荐）
+# 进入技能目录
 cd /Users/zhuangzewei/VSpace/Tools/Interview_Assistant/.claude/skills/resume-interview-evaluator
+
+# 基本用法 - 文件生成在PDF所在目录
+python3 scripts/analyze_resume.py /path/to/resume.pdf
+
+# 指定输出目录
+python3 scripts/analyze_resume.py /path/to/resume.pdf -o ./reports
+
+# 指定候选人姓名（如PDF中无法识别）
+python3 scripts/analyze_resume.py /path/to/resume.pdf --name "张三"
+```
+
+**输出位置说明**:
+- 默认情况下，生成的文件会放在PDF简历所在的目录
+- 使用 `-o` 参数可以指定其他输出目录
+
+#### 输出文件
+
+脚本会生成两个Markdown文件：
+```
+技能评估报告_{姓名}_{日期}.md      - 技能分析、项目评估、优势与风险
+面试问题清单_{姓名}_{日期}.md      - 定制化面试问题和评分表
+```
+
+#### 依赖安装
+
+```bash
+# 推荐安装 pdfplumber（提取效果更好）
+pip install pdfplumber
+
+# 或安装 PyPDF2
+pip install PyPDF2
+```
+
+---
+
+### 方式2：面试后生成评估报告
+
+使用 `generate_report.py` 在面试完成后生成结构化评估报告：
+
+```bash
+# 交互模式（推荐）
 python3 scripts/generate_report.py
 
-# 方式2：快速模式
+# 快速模式
 python3 scripts/generate_report.py --name "刘洧瀚" --position "Unity实习生" --score 82
 
-# 方式3：完整参数模式（支持项目信息）
+# 完整参数模式（支持项目信息）
 python3 scripts/generate_report.py \
     --name "刘洧瀚" \
     --position "Unity游戏开发实习生" \
@@ -54,7 +99,7 @@ python3 scripts/generate_report.py \
     --output-dir "./reports"
 ```
 
-### 输出文件
+#### 输出文件
 
 脚本会在指定目录（默认为当前目录）生成如下格式的文件：
 ```
@@ -212,7 +257,7 @@ interview_report_候选人姓名_YYYYMMDD.md
 2. xxx
 
 ## 推荐意见
-[录用建议/培养方向/后续安排]（不含薪资建议）
+[录用建议/培养方向/后续安排]
 
 ---
 
@@ -243,6 +288,39 @@ interview_report_候选人姓名_YYYYMMDD.md
 
 ## 工作流程
 
+### 自动化工作流程（推荐）
+
+```bash
+# 步骤1：从PDF简历自动生成评估报告和问题清单
+python3 scripts/analyze_resume.py /path/to/resume.pdf -o ./reports
+
+# 输出：
+# - 技能评估报告_候选人姓名_20260227.md
+# - 面试问题清单_候选人姓名_20260227.md
+
+# 步骤2：根据生成的面试问题清单执行面试
+# （按照5阶段流程进行面试，在问题清单中记录）
+
+# 步骤3（可选）：面试完成后生成正式评估报告
+python3 scripts/generate_report.py \
+    --name "候选人姓名" \
+    --position "岗位名称" \
+    --technical 80 \
+    --project 80 \
+    --algorithm 73 \
+    --teamwork 80 \
+    --potential 90 \
+    --culture 85 \
+    --highlights "优势1" "优势2" \
+    --risks "风险点1" \
+    --recommendation "建议录用" \
+    --output-dir "./reports"
+```
+
+### 手动工作流程
+
+如需手动控制流程，可按以下步骤执行：
+
 1. **简历预处理** - 提取关键信息（技术栈/项目/教育背景/薄弱环节）
 2. **风险点识别** - 标注需要验证的技术描述
 3. **问题清单生成** - 根据简历实际项目和技术栈定制面试问题
@@ -253,14 +331,17 @@ interview_report_候选人姓名_YYYYMMDD.md
 
 ```bash
 # 步骤1：分析简历并生成面试问题
-# （使用本 Skill 进行简历分析，获取定制化问题清单）
+python3 scripts/analyze_resume.py "/Users/zhuangzewei/简历/啊源_Unity开发.pdf" -o ./reports
 
-# 步骤2：执行面试
-# （按照5阶段流程进行面试）
+# 步骤2：查看生成的技能评估报告
+# 查看：技能评估报告_啊源_20260227.md
 
-# 步骤3：生成面试评估报告
+# 步骤3：使用面试问题清单进行面试
+# 查看：面试问题清单_啊源_20260227.md
+
+# 步骤4：面试完成后生成正式评估报告（可选）
 python3 scripts/generate_report.py \
-    --name "刘洧瀚" \
+    --name "啊源" \
     --position "Unity游戏开发实习生" \
     --technical 80 \
     --project 80 \
@@ -277,7 +358,7 @@ python3 scripts/generate_report.py \
     --weak-areas "C++语法了解" "分布式系统描述" \
     --output-dir "./reports"
 
-# 输出：interview_report_刘洧瀚_20260225.md
+# 输出：interview_report_啊源_20260227.md
 ```
 
 ---
@@ -286,15 +367,55 @@ python3 scripts/generate_report.py \
 
 - **详细面试问题库**：见 [references/interview-questions.md](references/interview-questions.md)
 - **评分标准细则**：见 [references/evaluation-criteria.md](references/evaluation-criteria.md)
+- **简历分析脚本**：见 `scripts/analyze_resume.py`
 - **报告生成脚本**：见 `scripts/generate_report.py`
 
 ---
 
 ## 脚本使用说明
 
+### analyze_resume.py
+
+该脚本用于从PDF简历自动提取信息并生成技能评估报告和面试问题清单。
+
+**功能**：
+- 自动提取PDF文本（支持 pdfplumber 或 PyPDF2）
+- 解析关键信息：姓名、岗位、技能、项目经历等
+- 分析技能熟练度和风险点
+- 生成技能评估报告（技能概览、项目分析、综合评价）
+- 生成定制化面试问题清单（针对简历内容）
+
+**参数说明**：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `pdf_path` | PDF简历文件路径（必填） | - |
+| `-o, --output-dir` | 输出目录 | PDF所在目录 |
+| `--name` | 候选人姓名（覆盖PDF识别结果） | 自动识别 |
+
+**输出文件命名规则**：
+```
+技能评估报告_{候选人姓名}_{YYYYMMDD}.md
+面试问题清单_{候选人姓名}_{YYYYMMDD}.md
+```
+
+**示例**：
+```
+技能评估报告_啊源_20260227.md
+面试问题清单_啊源_20260227.md
+```
+
+**报告内容特点**：
+- 自动识别技术栈（编程语言、游戏引擎、专业技能、工具）
+- 根据项目数量评估技能熟练度
+- 生成优势亮点和风险点分析
+- 项目复杂度评估和风险标注
+
+---
+
 ### generate_report.py
 
-该脚本用于自动生成面试评估报告的 Markdown 文件。
+该脚本用于在面试完成后生成结构化面试评估报告的 Markdown 文件。
 
 **参数说明**：
 
@@ -333,4 +454,93 @@ interview_report_刘洧瀚_20260225.md
 - 面试评估部分与面试过程记录使用 `---` 分割线清晰分隔
 - 项目经历深挖根据提供的项目信息生成针对性问题
 - 基础能力考察根据技术栈和薄弱环节定制问题
-- 推荐意见不包含薪资建议
+
+---
+
+## 文件输出说明
+
+### 技能评估报告结构
+
+```markdown
+# 候选人技能评估报告 - {姓名}
+
+## 基本信息
+| 项目 | 内容 |
+|------|------|
+| 姓名 | xxx |
+| 期望岗位 | xxx |
+| 工作年限 | xxx |
+| 毕业院校 | xxx |
+
+## 技能概览
+### 技术栈
+- **编程语言**: C#, C++, Python...
+- **游戏引擎**: Unity, Unreal...
+- **专业技能**: ECS, Shader, 网络编程...
+- **工具**: Git, Addressable...
+
+### 技能熟练度评估
+| 技能 | 熟练度 | 证据来源 |
+|------|--------|----------|
+| Unity | 熟练 | 4个项目经验 |
+| C# | 精通 | 2年使用经验 |
+
+## 项目经历分析
+### 项目1: {项目名称}
+- **类型**: 2D横版/FPS/RPG/网络对战
+- **职责**: 独立开发/主程序
+- **技术亮点**: xxx
+- **复杂度评估**: 中等/高
+- **风险点**: xxx
+
+## 优势亮点
+1. xxx
+2. xxx
+
+## 风险点/待验证
+1. xxx
+2. xxx
+
+## 综合评价
+- **推荐等级**: A/B/C/D
+- **总体评价**: xxx
+- **适合岗位**: xxx
+```
+
+### 面试问题清单结构
+
+```markdown
+# 面试问题清单 - {姓名}
+
+## 面试概览
+- **候选人**: {姓名}
+- **岗位**: {岗位}
+- **建议时长**: 30-35分钟
+
+## 阶段1: 自我介绍 (2分钟)
+- [ ] 问题1...
+
+## 阶段2: 项目经历深挖 (20分钟)
+### 项目1: {项目名称}
+- 架构问题...
+- 技术细节...
+- 挑战与解决...
+
+## 阶段3: 基础能力考察 (5分钟)
+### C#基础
+- [ ] 问题...
+### Unity专项
+- [ ] 问题...
+### 薄弱环节验证
+- [ ] 问题...
+
+## 阶段4: 非技术素质 (2分钟)
+- [ ] 问题...
+
+## 阶段5: 候选人提问 (3分钟)
+
+## 评分记录表
+| 维度 | 权重 | 得分 |
+|------|------|------|
+| ... | ... | ... |
+```
