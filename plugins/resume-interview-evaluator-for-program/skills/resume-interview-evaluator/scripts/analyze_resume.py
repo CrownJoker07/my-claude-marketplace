@@ -350,11 +350,14 @@ def extract_projects(text: str) -> List[Dict]:
                 if cleaned_name and len(cleaned_name) > 2:
                     project_name = cleaned_name
 
+        # 使用智能描述提取
+        meaningful_desc = extract_meaningful_description(proj_text)
+
         project = {
             'name': project_name or f'项目{i+1}',
             'type': '',
             'role': '',
-            'description': proj_text.strip()[:500],
+            'description': meaningful_desc,
             'tech_stack': []
         }
 
@@ -392,8 +395,8 @@ def extract_projects(text: str) -> List[Dict]:
         # 提取技术亮点
         tech_highlights = extract_tech_highlights(proj_text, project['tech_stack'])
 
-        # 提取个人贡献
-        personal_contribution = extract_personal_contribution(proj_text)
+        # 提取个人贡献（传入角色信息用于推断）
+        personal_contribution = extract_personal_contribution(proj_text, project['role'])
 
         # 提取项目详细信息
         project_details = extract_project_details(proj_text)
@@ -403,6 +406,13 @@ def extract_projects(text: str) -> List[Dict]:
         project['core_systems'] = project_details.get('core_systems', [])
         project['tech_highlights'] = tech_highlights
         project['personal_contribution'] = personal_contribution
+
+        # 如果核心系统为空，尝试基于上下文推断
+        if not project['core_systems']:
+            inferred_systems = infer_core_systems_by_context(proj_text, project['role'], project['tech_stack'])
+            if inferred_systems:
+                project['core_systems'] = inferred_systems
+                project['inferred_core_systems'] = True  # 标记为推断的
 
         # 分析项目复杂度
         complexity_result = analyze_project_complexity(project)
@@ -490,6 +500,91 @@ def extract_project_details(proj_text: str) -> Dict:
     return details
 
 
+def infer_contribution_by_role(role: str) -> List[str]:
+    """根据角色推断可能的贡献"""
+    role_contributions = {
+        '客户端': [
+            '参与游戏客户端功能开发',
+            '负责Gameplay系统实现',
+            '参与UI交互逻辑开发',
+            '协助资源管理与加载优化',
+        ],
+        '服务器': [
+            '参与服务器后端开发',
+            '负责网络同步逻辑实现',
+            '参与数据存储方案设计',
+        ],
+        '主程序': [
+            '主导项目技术架构设计',
+            '负责核心系统开发',
+            '指导团队成员开发',
+        ],
+        '独立开发': [
+            '独立完成项目全部开发工作',
+            '负责技术选型与架构设计',
+            '完成 gameplay、UI、系统等模块',
+        ],
+    }
+    return role_contributions.get(role, [])
+
+
+def infer_core_systems_by_context(proj_text: str, role: str, tech_stack: List[str]) -> List[str]:
+    """基于上下文推断可能的核心系统"""
+    inferred_systems = []
+
+    # 基于技术栈推断
+    if any(tech in proj_text for tech in ['Unity', 'unity']):
+        inferred_systems.extend(['资源管理', 'UI系统', '动画系统'])
+    if any(tech in proj_text for tech in ['Wwise', 'wwise']):
+        inferred_systems.append('音频系统')
+    if 'ECS' in str(tech_stack):
+        inferred_systems.append('ECS架构系统')
+
+    # 基于角色推断
+    role_systems = {
+        '客户端': ['游戏玩法系统', 'UI系统', '资源管理'],
+        '服务器': ['网络同步', '数据存储', '服务器架构'],
+        '主程序': ['架构设计', '核心系统', '技术框架'],
+    }
+    if role in role_systems:
+        inferred_systems.extend(role_systems[role])
+
+    # 基于文本关键词推断
+    if any(kw in proj_text for kw in ['游戏', '玩法', '操作', '战斗', '技能']):
+        inferred_systems.append('游戏玩法系统')
+    if any(kw in proj_text for kw in ['工作室', '团队', '协作', 'Git', 'SVN']):
+        inferred_systems.append('版本控制协作')
+    if any(kw in proj_text for kw in ['网络', '联机', '多人', '同步']):
+        inferred_systems.append('网络同步系统')
+
+    return list(set(inferred_systems))
+
+
+def extract_meaningful_description(proj_text: str) -> str:
+    """提取有意义的项目描述"""
+    # 1. 尝试找到"项目描述"、"项目介绍"等标签后的内容
+    desc_patterns = [
+        r'(?:项目描述|项目介绍|项目简介|描述)[：:]\s*([^\n]+(?:\n(?!(?:职责|角色|技术|成果|担任))[^\n]+)*)',
+        r'(?:项目背景|背景)[：:]\s*([^\n]+)',
+    ]
+    for pattern in desc_patterns:
+        match = re.search(pattern, proj_text)
+        if match:
+            return match.group(1).strip()[:500]
+
+    # 2. 如果没有匹配，取非列表标记的第一段有意义文字
+    lines = proj_text.strip().split('\n')
+    for line in lines:
+        line = line.strip()
+        # 过滤列表标记和过短/过长的行
+        if len(line) > 30 and len(line) < 300:
+            if not re.match(r'^[-•◆●\d\s\.\[\(]', line):
+                return line[:500]
+
+    # 3. 兜底：返回前500字符
+    return proj_text.strip()[:500]
+
+
 def extract_tech_highlights(proj_text: str, tech_stack: List[str]) -> List[str]:
     """
     提取技术亮点
@@ -499,11 +594,16 @@ def extract_tech_highlights(proj_text: str, tech_stack: List[str]) -> List[str]:
     """
     highlights = []
 
-    # 技术实现关键词
+    # 技术实现关键词 - 扩展匹配模式
     implementation_patterns = [
+        # 原有模式
         r'(?:实现了|开发了|设计了|搭建了|完成了|构建了)([^，。\n]{5,100})',
-        r'(?:基于|使用|采用)([^，。\n]{3,50})(?:实现了|开发了|完成了)([^，。\n]{5,80})',
-        r'(?:独立|负责|主导)([^，。\n]{5,100})',
+        # 新增模式 - 注意这里需要匹配"完成了"而不是"完成"，以避免匹配"完成"开头的词组
+        r'(?:完成了|参与到|制作出|编写出|重构了|封装了|集成了|部署了)([^，。\n]{5,100})',
+        r'(?:使用|运用|应用|借助|通过)([^，。\n]{3,50})(?:完成|实现|开发|制作|做到)([^，。\n]{5,80})',
+        r'(?:解决|处理|克服|应对)了?([^，。\n]{5,100})(?:问题|困难|挑战|bug|Bug)',
+        r'(?:优化|改进|完善|提升)了?([^，。\n]{5,100})',
+        r'(?:独立|负责|主导)完成?了?([^，。\n]{5,100})',
     ]
 
     for pattern in implementation_patterns:
@@ -552,20 +652,26 @@ def extract_tech_highlights(proj_text: str, tech_stack: List[str]) -> List[str]:
     return unique_highlights[:6]  # 最多返回6个亮点
 
 
-def extract_personal_contribution(proj_text: str) -> List[str]:
+def extract_personal_contribution(proj_text: str, role: str = '') -> List[str]:
     """
     提取个人贡献
     - 识别"负责/主导/独立/参与"等职责描述
     - 提取第一人称描述
     - 识别具体成果数据
+    - 新增：基于角色的推断
     """
     contributions = []
 
-    # 职责描述模式
+    # 职责描述模式 - 扩展模式
     responsibility_patterns = [
-        r'(?:负责|主导|独立|带领|参与|协助|配合)([^，。\n]{5,100})',
-        r'(?:我|本人)(?:负责|主导|独立|参与|完成|实现)([^，。\n]{5,100})',
-        r'(?:担任|作为)([^，。\n]{3,20})(?:负责|主导|参与)([^，。\n]{5,80})',
+        # 原有模式
+        r'(?:负责|主导|独立|带领|参与|协助|配合)了?([^，。：\n]{5,100})',
+        r'(?:我|本人)(?:负责|主导|独立|参与|完成|实现)了?([^，。：\n]{5,100})',
+        r'(?:担任|作为)([^，。：\n]{3,20})(?:负责|主导|参与)了?([^，。：\n]{5,80})',
+        # 新增模式 - 匹配更自然的描述
+        r'(?:参与|协作|配合)了?([^，。：\n]{5,100})',
+        r'(?:学习|掌握|熟悉|了解)了?([^，。：\n]{5,60})(?:技术|工具|技能|框架)',
+        r'(?:积累|沉淀|总结)了?([^，。：\n]{5,80})(?:经验|能力|知识)',
     ]
 
     for pattern in responsibility_patterns:
@@ -596,6 +702,13 @@ def extract_personal_contribution(proj_text: str) -> List[str]:
         c_clean = re.sub(r'\s+', '', c)
         if not any(re.sub(r'\s+', '', existing) == c_clean for existing in unique_contributions):
             unique_contributions.append(c)
+
+    # 如果规则提取不到内容，尝试基于角色推断
+    if not unique_contributions and role:
+        inferred = infer_contribution_by_role(role)
+        if inferred:
+            # 添加推断标记
+            unique_contributions = [f"[基于角色推断] {c}" for c in inferred[:2]]
 
     return unique_contributions[:5]  # 最多返回5个贡献点
 
@@ -956,7 +1069,11 @@ def generate_skill_report(parsed_data: Dict, analysis: Dict, output_dir: str) ->
 
         # 核心系统
         if project.get('core_systems'):
-            lines.append(f"- **核心系统**: {', '.join(project['core_systems'])}")
+            systems_str = ', '.join(project['core_systems'])
+            if project.get('inferred_core_systems'):
+                lines.append(f"- **核心系统**（推断）: {systems_str}")
+            else:
+                lines.append(f"- **核心系统**: {systems_str}")
 
         lines.append("")
 
@@ -985,16 +1102,35 @@ def generate_skill_report(parsed_data: Dict, analysis: Dict, output_dir: str) ->
 
         # 风险点
         risks = []
+        follow_up_questions = []
+
         if not project.get('role'):
-            risks.append('职责描述不清晰')
+            risks.append('职责描述不清晰，建议追问具体分工')
+            follow_up_questions.append('你在项目中具体担任什么角色？负责哪些模块？')
+
         if len(desc) < 100:
-            risks.append('项目描述过于简单')
+            risks.append('项目描述较简单，建议深入了解技术细节')
+            follow_up_questions.append('请详细描述项目的技术架构和实现方案')
+
         if not tech_highlights:
-            risks.append('缺少技术亮点描述')
+            risks.append('未明确技术亮点，建议询问遇到的技术难点和解决方案')
+            follow_up_questions.append('项目开发中遇到过哪些技术挑战？如何解决的？')
+
         if not contributions:
-            risks.append('缺少个人贡献说明')
+            risks.append('个人贡献不突出，建议追问具体负责的工作内容')
+            follow_up_questions.append('在这个项目中你具体完成了哪些工作？')
+
+        if project.get('inferred_core_systems'):
+            risks.append('核心系统未明确，建议核实实际参与的系统')
+
         if risks:
             lines.append(f"- **风险点**: {'; '.join(risks)}")
+
+        # 添加建议追问问题
+        if follow_up_questions and not tech_highlights:
+            lines.append("- **建议追问**:")
+            for q in follow_up_questions[:2]:
+                lines.append(f"  - {q}")
 
         lines.append("")
 
