@@ -560,8 +560,63 @@ def infer_core_systems_by_context(proj_text: str, role: str, tech_stack: List[st
     return list(set(inferred_systems))
 
 
+def clean_extracted_text(text: str) -> Tuple[str, bool]:
+    """
+    清洗提取的文本，检测并处理乱码
+
+    返回: (清洗后的文本, 是否包含乱码)
+    """
+    if not text:
+        return "", False
+
+    # 1. 检测异常字符比例
+    # 定义正常中文字符、英文字母、数字、常用标点
+    # 使用正则表达式定义正常字符范围（中文字符、英文字母、数字、常用标点）
+    # 使用字符类避免过多转义，[\x5b\x5d] 代表 [ 和 ]
+    normal_chars = re.compile('[\u4e00-\u9fa5a-zA-Z0-9\s，。、；：""''（）【】——/\\%@#&*()_+,.:;!?<>\x5b\x5d{}-]')
+
+    total_chars = len(text)
+    if total_chars == 0:
+        return "", False
+
+    normal_count = len(normal_chars.findall(text))
+    abnormal_ratio = 1 - (normal_count / total_chars)
+
+    # 如果异常字符比例超过30%，认为是乱码
+    has_garbage = abnormal_ratio > 0.30
+
+    # 2. 过滤无意义的控制字符和乱码模式
+    # 移除常见乱码模式（如单个字母+符号的随机组合）
+    cleaned = text
+
+    # 移除孤立的外文字母（可能是PDF提取的乱码）
+    # 保留成词的字母，移除随机单字母
+    cleaned = re.sub(r'(?<![a-zA-Z])[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ](?![a-zA-Z])', '', cleaned)
+
+    # 移除过多的连续特殊字符
+    cleaned = re.sub(r'[^\w\u4e00-\u9fa5]{4,}', ' ', cleaned)
+
+    # 3. 检测混合编码痕迹（如UTF-8误读为Latin-1的特征）
+    garbage_patterns = [
+        r'[\x00-\x08\x0b-\x0c\x0e-\x1f]',  # 控制字符
+        r'Ã[\u00a0-\u00bf]',  # UTF-8误读为Latin-1的常见模式
+        r'Â[\u00a0-\u00bf]',
+        r'ï¿½',  # 替换字符
+    ]
+
+    for pattern in garbage_patterns:
+        if re.search(pattern, cleaned):
+            has_garbage = True
+            cleaned = re.sub(pattern, '', cleaned)
+
+    # 4. 清理多余空白
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+    return cleaned, has_garbage
+
+
 def extract_meaningful_description(proj_text: str) -> str:
-    """提取有意义的项目描述"""
+    """提取有意义的项目描述，带乱码检测"""
     # 1. 尝试找到"项目描述"、"项目介绍"等标签后的内容
     desc_patterns = [
         r'(?:项目描述|项目介绍|项目简介|描述)[：:]\s*([^\n]+(?:\n(?!(?:职责|角色|技术|成果|担任))[^\n]+)*)',
@@ -570,7 +625,12 @@ def extract_meaningful_description(proj_text: str) -> str:
     for pattern in desc_patterns:
         match = re.search(pattern, proj_text)
         if match:
-            return match.group(1).strip()[:500]
+            desc = match.group(1).strip()[:500]
+            cleaned, has_garbage = clean_extracted_text(desc)
+            if has_garbage and len(cleaned) < 20:
+                # 如果清洗后内容太少，继续尝试其他段落
+                continue
+            return cleaned if cleaned else desc
 
     # 2. 如果没有匹配，取非列表标记的第一段有意义文字
     lines = proj_text.strip().split('\n')
@@ -579,10 +639,15 @@ def extract_meaningful_description(proj_text: str) -> str:
         # 过滤列表标记和过短/过长的行
         if len(line) > 30 and len(line) < 300:
             if not re.match(r'^[-•◆●\d\s\.\[\(]', line):
-                return line[:500]
+                cleaned, has_garbage = clean_extracted_text(line)
+                if not has_garbage or len(cleaned) > 20:
+                    return cleaned[:500] if cleaned else line[:500]
 
-    # 3. 兜底：返回前500字符
-    return proj_text.strip()[:500]
+    # 3. 兜底：返回前500字符（经过清洗）
+    cleaned, has_garbage = clean_extracted_text(proj_text.strip()[:500])
+    if has_garbage and len(cleaned) < 20:
+        return "[文本提取异常，建议查看原始简历]"
+    return cleaned if cleaned else proj_text.strip()[:500]
 
 
 def extract_tech_highlights(proj_text: str, tech_stack: List[str]) -> List[str]:
@@ -876,7 +941,18 @@ def analyze_skills(parsed_data: Dict) -> Dict:
     skills = parsed_data['skills']
     projects = parsed_data['projects']
 
-    # 分析技能熟练度
+    # 分析技能熟练度 - 使用字典去重，确保同一技能只保留一条记录
+    # 优先级：编程语言 > 游戏引擎 > 专业技能 > 工具
+    skill_records = {}  # skill_name -> {category, level, evidence, priority}
+
+    # 按优先级顺序处理，优先级高的先处理
+    category_priority = {
+        '编程语言': 1,
+        '游戏引擎': 2,
+        '专业技能': 3,
+        '工具': 4
+    }
+
     all_skills = []
     all_skills.extend([(s, '编程语言') for s in skills['languages']])
     all_skills.extend([(s, '游戏引擎') for s in skills['engines']])
@@ -884,6 +960,13 @@ def analyze_skills(parsed_data: Dict) -> Dict:
     all_skills.extend([(s, '工具') for s in skills['tools']])
 
     for skill, category in all_skills:
+        # 跳过空技能名
+        if not skill:
+            continue
+
+        # 标准化技能名（用于去重比较）
+        skill_normalized = skill.lower().strip()
+
         level = '了解'
         evidence = '简历提及'
 
@@ -891,20 +974,55 @@ def analyze_skills(parsed_data: Dict) -> Dict:
         related_projects = sum(1 for p in projects if skill in str(p))
         if related_projects >= 2:
             level = '精通'
-            evidence = f'{related_projects}个项目经验'
+            evidence = f'{related_projects}个项目'
         elif related_projects == 1:
             level = '熟练'
-            evidence = '1个项目经验'
+            evidence = '1个项目'
         elif len(projects) > 0:
             level = '了解'
             evidence = '简历提及'
 
-        analysis['skill_levels'].append({
-            'skill': skill,
-            'category': category,
-            'level': level,
-            'evidence': evidence
-        })
+        # 如果技能已存在，根据优先级和熟练度决定是否更新
+        if skill_normalized in skill_records:
+            existing = skill_records[skill_normalized]
+            current_priority = category_priority.get(category, 99)
+            existing_priority = category_priority.get(existing['category'], 99)
+
+            # 优先级相同时，保留熟练度更高的
+            if current_priority == existing_priority:
+                level_priority = {'精通': 3, '熟练': 2, '了解': 1}
+                if level_priority.get(level, 0) > level_priority.get(existing['level'], 0):
+                    skill_records[skill_normalized] = {
+                        'skill': skill,
+                        'category': category,
+                        'level': level,
+                        'evidence': evidence,
+                        'priority': current_priority
+                    }
+            # 优先级更高时，替换
+            elif current_priority < existing_priority:
+                skill_records[skill_normalized] = {
+                    'skill': skill,
+                    'category': category,
+                    'level': level,
+                    'evidence': evidence,
+                    'priority': current_priority
+                }
+        else:
+            # 新技能，直接添加
+            skill_records[skill_normalized] = {
+                'skill': skill,
+                'category': category,
+                'level': level,
+                'evidence': evidence,
+                'priority': category_priority.get(category, 99)
+            }
+
+    # 转换为列表并按类别分组排序
+    analysis['skill_levels'] = [
+        {k: v for k, v in record.items() if k != 'priority'}
+        for record in skill_records.values()
+    ]
 
     # 生成优势亮点
     advantages = []
@@ -1025,15 +1143,31 @@ def generate_skill_report(parsed_data: Dict, analysis: Dict, output_dir: str) ->
         lines.append(f"- **工具**: {tools_str}")
     lines.append("")
 
-    # 技能熟练度评估
+    # 技能熟练度评估 - 按类别分组的简洁列表格式
     lines.append("### 技能熟练度评估")
     lines.append("")
-    lines.append("| 技能 | 熟练度 | 证据来源 |")
-    lines.append("|------|--------|----------|")
 
-    for item in analysis['skill_levels'][:15]:  # 最多显示15个
-        lines.append(f"| {item['skill']} | {item['level']} | {item['evidence']} |")
-    lines.append("")
+    # 按类别分组
+    category_order = ['编程语言', '游戏引擎', '专业技能', '工具']
+    skills_by_category = {}
+    for item in analysis['skill_levels']:
+        cat = item['category']
+        if cat not in skills_by_category:
+            skills_by_category[cat] = []
+        skills_by_category[cat].append(item)
+
+    # 按优先级顺序输出各分类
+    for category in category_order:
+        if category in skills_by_category:
+            items = skills_by_category[category]
+            # 按熟练度排序：精通 > 熟练 > 了解
+            level_order = {'精通': 0, '熟练': 1, '了解': 2}
+            items.sort(key=lambda x: (level_order.get(x['level'], 3), x['skill']))
+
+            lines.append(f"**{category}**")
+            for item in items[:10]:  # 每类最多显示10个
+                lines.append(f"- {item['skill']} - {item['level']}（{item['evidence']}）")
+            lines.append("")
 
     # 项目经历分析
     lines.append("## 项目经历分析")
