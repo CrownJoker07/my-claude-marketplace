@@ -306,6 +306,45 @@ def extract_skills(text: str) -> Dict[str, List[str]]:
     return skills
 
 
+def _is_valid_project_name(name: str) -> bool:
+    """
+    验证是否为有效的项目名称
+
+    规则：
+    1. 长度在3-30字符之间
+    2. 不能包含明显的描述性词语
+    3. 不能是完整的句子（不能包含过多标点或连接词）
+    4. 不能是纯数字或特殊字符
+    """
+    if not name or len(name) < 3 or len(name) > 30:
+        return False
+
+    # 过滤包含明显描述性关键词的
+    desc_keywords = [
+        '参与', '负责', '开发', '设计', '实现', '完成', '使用', '通过',
+        '积累', '团队协作', '项目经验', '工作经验', '主要职责',
+        '技术栈', '项目描述', '项目职责', '项目介绍'
+    ]
+
+    for keyword in desc_keywords:
+        if keyword in name:
+            return False
+
+    # 过滤包含过多标点符号的（可能是句子）
+    if name.count('，') + name.count('。') + name.count('；') > 1:
+        return False
+
+    # 过滤包含连接词的（可能是句子）
+    if '，' in name or '。' in name or '；' in name:
+        return False
+
+    # 过滤纯数字或纯特殊字符
+    if re.match(r'^[\d\s\-\_\.]+$', name):
+        return False
+
+    return True
+
+
 def extract_projects(text: str) -> List[Dict]:
     """提取项目经历"""
     projects = []
@@ -339,16 +378,26 @@ def extract_projects(text: str) -> List[Dict]:
         # 方式1：匹配 "项目名称：XXX"、"项目名：XXX"、《XXX》、【XXX】格式
         name_match = re.search(r'(?:项目名称[：:]\s*|项目名[：:]\s*|Project\s*Name[：:]\s*|《|【)([^\n【】》]+)', proj_text, re.IGNORECASE)
         if name_match:
-            project_name = name_match.group(1).strip()
-        else:
-            # 方式2：取项目文本的第一行作为项目名（如果不是分隔符）
+            candidate = name_match.group(1).strip()
+            # 过滤：项目名通常较短（<30字符），且不应是完整句子
+            if _is_valid_project_name(candidate):
+                project_name = candidate
+
+        # 方式2：取项目文本的第一行作为项目名（如果不是分隔符）
+        if not project_name:
             first_line = proj_text.strip().split('\n')[0].strip()
-            # 过滤掉纯数字、分隔符等无意义内容
-            if first_line and len(first_line) > 2 and len(first_line) < 50:
-                # 去除常见的列表标记（如 "1. ", "- ", "◆ " 等）
-                cleaned_name = re.sub(r'^[\d\s\.\-\◆\●\*\[\(]+', '', first_line)
-                if cleaned_name and len(cleaned_name) > 2:
-                    project_name = cleaned_name
+            # 去除常见的列表标记（如 "1. ", "- ", "◆ " 等）
+            cleaned_name = re.sub(r'^[\d\s\.\-\◆\●\*\[\(]+', '', first_line)
+            if _is_valid_project_name(cleaned_name):
+                project_name = cleaned_name
+
+        # 方式3：查找引号内的名称
+        if not project_name:
+            quote_match = re.search(r'["\']([^"\'\n]{3,30})["\']', proj_text)
+            if quote_match:
+                candidate = quote_match.group(1).strip()
+                if _is_valid_project_name(candidate):
+                    project_name = candidate
 
         # 使用智能描述提取
         meaningful_desc = extract_meaningful_description(proj_text)
@@ -1312,7 +1361,11 @@ def generate_skill_report(parsed_data: Dict, analysis: Dict, output_dir: str) ->
 
 
 def generate_question_list(parsed_data: Dict, analysis: Dict, output_dir: str) -> str:
-    """生成面试问题清单"""
+    """
+    生成面试问题清单
+
+    使用新的问题生成器，根据候选人技能智能选择问题
+    """
     name = parsed_data['name']
     today = datetime.now().strftime('%Y%m%d')
     skills = parsed_data['skills']
@@ -1326,112 +1379,187 @@ def generate_question_list(parsed_data: Dict, analysis: Dict, output_dir: str) -
     lines.append("## 面试概览")
     lines.append(f"- **候选人**: {name}")
     lines.append(f"- **岗位**: {parsed_data['position']}")
-    lines.append(f"- **建议时长**: 30-35分钟")
+    lines.append(f"- **建议时长**: 根据问题数量动态调整")
     lines.append("")
 
-    # 阶段1: 自我介绍
-    lines.append("## 阶段1: 自我介绍 (2分钟)")
-    lines.append("- [ ] 请简单介绍一下自己")
-    lines.append("- [ ] 为什么来面试这个岗位？")
-    lines.append("- [ ] 为什么选择我们公司/项目组？")
+    # 候选人技能摘要
+    lines.append("### 候选人技能摘要")
+    if skills.get('languages'):
+        lines.append(f"- **编程语言**: {', '.join(skills['languages'])}")
+    if skills.get('engines'):
+        lines.append(f"- **游戏引擎**: {', '.join(skills['engines'])}")
+    if skills.get('professional'):
+        lines.append(f"- **专业技能**: {', '.join(skills['professional'][:8])}")
     lines.append("")
 
-    # 阶段2: 项目经历深挖
-    lines.append("## 阶段2: 项目经历深挖 (20分钟)")
-    lines.append("")
+    # 使用新的问题生成器生成问题
+    try:
+        # 动态导入以避免循环依赖
+        import importlib.util
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        generator_path = os.path.join(script_dir, 'question_generator.py')
 
-    for i, project in enumerate(projects[:3], 1):
-        lines.append(f"### 项目{i}: {project['name']}")
-        lines.append("")
+        spec = importlib.util.spec_from_file_location("question_generator", generator_path)
+        question_generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(question_generator)
 
-        # 架构问题
-        lines.append("**架构与设计**:")
-        lines.append(f"- [ ] 请介绍一下《{project['name']}》的整体架构")
-        lines.append(f"- [ ] 你在项目中担任{project['role'] or '什么角色'}？团队规模？")
-        lines.append(f"- [ ] 项目的核心玩法是什么？技术挑战在哪里？")
-        lines.append("")
+        # 创建生成器并生成问题
+        generator = question_generator.QuestionGenerator()
+        question_data = generator.generate_for_candidate(skills, projects, analysis)
 
-        # 技术细节问题（基于技术栈）
-        if project['tech_stack']:
-            lines.append("**技术细节**:")
-            for tech in project['tech_stack'][:3]:
-                if tech == 'Unity':
-                    lines.append(f"- [ ] [{tech}] 项目中使用了Unity的哪些系统？")
-                    lines.append(f"- [ ] [{tech}] 资源管理是如何做的？")
-                elif tech == 'Wwise':
-                    lines.append(f"- [ ] [{tech}] Wwise与Unity音频系统的区别？")
-                elif tech == '行为树':
-                    lines.append(f"- [ ] [{tech}] AI的行为树是如何设计的？")
-                else:
-                    lines.append(f"- [ ] [{tech}] 如何使用{tech}解决具体问题？")
+        # 添加技能维度问题
+        if question_data.get('skills'):
+            lines.append("## 技能维度考察")
+            lines.append("")
+            lines.append("*根据候选人技能标签匹配的问题维度，按熟练度选择问题难度*")
             lines.append("")
 
-        # 挑战与解决
-        lines.append("**挑战与解决**:")
-        lines.append("- [ ] 项目中遇到的最大技术挑战是什么？如何解决的？")
-        lines.append("- [ ] 如果重新设计这个项目，会做哪些改进？")
-        lines.append("- [ ] 如何保证代码质量和可维护性？")
+            for skill_name, skill_info in question_data['skills'].items():
+                prof = skill_info.get('proficiency', '熟练')
+                proj_count = skill_info.get('project_count', 0)
+                questions = skill_info.get('questions', [])
+
+                if not questions:
+                    continue
+
+                lines.append(f"### {skill_name} ({prof} - {proj_count}个项目)")
+                lines.append("")
+
+                # 按难度分组显示
+                by_difficulty = {"初级": [], "中级": [], "高级": [], "项目深挖": []}
+                for q in questions:
+                    if q.difficulty in by_difficulty:
+                        by_difficulty[q.difficulty].append(q)
+
+                # 显示各类问题
+                for diff in ["初级", "中级", "高级"]:
+                    qs = by_difficulty[diff]
+                    if not qs:
+                        continue
+
+                    lines.append(f"**{diff}问题** (选择{min(len(qs), 2)}个提问):")
+                    for i, q in enumerate(qs[:3], 1):
+                        lines.append(f"- [ ] {q.content}")
+                    lines.append("")
+
+                # 项目深挖问题
+                if by_difficulty["项目深挖"]:
+                    lines.append(f"**项目深挖** (针对{skill_name}在项目中使用):")
+                    for q in by_difficulty["项目深挖"][:2]:
+                        lines.append(f"- [ ] {q.content}")
+                    lines.append("")
+
+        # 添加项目深挖问题
+        if question_data.get('projects'):
+            lines.append("## 项目深挖")
+            lines.append("")
+            lines.append("*针对具体项目经历的技术追问*")
+            lines.append("")
+
+            for project in question_data['projects']:
+                proj_name = project.get('name', '未命名项目')
+                tech_stack = project.get('tech_stack', [])
+                role = project.get('role', '')
+                questions = project.get('questions', [])
+
+                lines.append(f"### {proj_name}")
+                if tech_stack:
+                    lines.append(f"**技术栈**: {', '.join(tech_stack[:5])}")
+                if role:
+                    lines.append(f"**角色**: {role}")
+                lines.append("")
+
+                # 通用项目问题
+                lines.append("**架构与设计**:")
+                lines.append(f"- [ ] 请介绍一下《{proj_name}》的整体架构设计")
+                lines.append(f"- [ ] 你在项目中担任{role or '什么角色'}？团队规模如何？")
+                lines.append(f"- [ ] 项目的技术亮点是什么？最大的技术挑战在哪里？")
+                lines.append("")
+
+                # 技术栈相关问题
+                if tech_stack:
+                    lines.append("**技术细节追问**:")
+                    for tech in tech_stack[:3]:
+                        lines.append(f"- [ ] [{tech}] 项目中具体如何使用{tech}？遇到过什么问题？")
+                    lines.append("")
+
+                lines.append("**挑战与解决**:")
+                lines.append("- [ ] 项目中遇到的最大技术挑战是什么？如何解决的？")
+                lines.append("- [ ] 如果重新设计这个项目，会做哪些改进？")
+                lines.append("- [ ] 如何保证代码质量和可维护性？")
+                lines.append("")
+
+        # 添加薄弱环节验证问题
+        if question_data.get('weakness') and analysis.get('risks'):
+            lines.append("## 薄弱环节验证")
+            lines.append("")
+            lines.append("*基于简历分析发现的风险点进行针对性验证*")
+            lines.append("")
+
+            for i, risk in enumerate(analysis['risks'][:3], 1):
+                lines.append(f"**风险点{i}**: {risk}")
+                lines.append("")
+
+            lines.append("**验证问题**:")
+            for q in question_data['weakness'][:5]:
+                lines.append(f"- [ ] [{q.dimension}] {q.content}")
+            lines.append("")
+
+        # 添加通用问题
+        if question_data.get('general'):
+            lines.append("## 通用问题")
+            lines.append("")
+            lines.append("**软技能与项目经验**:")
+            for q in question_data['general'][:5]:
+                lines.append(f"- [ ] {q.content}")
+            lines.append("")
+
+    except Exception as e:
+        # 如果新生成器失败，使用简单的备选方案
+        lines.append("## 技能考察")
+        lines.append("")
+        lines.append(f"*问题生成模块加载失败 ({e})，使用备选问题*")
         lines.append("")
 
-    # 阶段3: 基础能力考察
-    lines.append("## 阶段3: 基础能力考察 (5分钟)")
-    lines.append("")
+        if 'C#' in str(skills.get('languages', [])):
+            lines.append("### C#基础")
+            lines.append("- [ ] 值类型和引用类型的区别？什么是装箱拆箱？")
+            lines.append("- [ ] 什么是GC？如何避免GC Alloc？")
+            lines.append("")
 
-    # 根据技能生成针对性问题
-    if 'C#' in str(skills['languages']):
-        lines.append("### C#基础")
-        lines.append("- [ ] 值类型和引用类型的区别？什么是装箱拆箱？")
-        lines.append("- [ ] 什么是GC？如何避免GC Alloc？")
-        lines.append("- [ ] 委托和事件的区别？")
+        if 'Unity' in str(skills.get('engines', [])):
+            lines.append("### Unity专项")
+            lines.append("- [ ] Unity生命周期函数的执行顺序？")
+            lines.append("- [ ] 项目中是如何进行资源管理的？")
+            lines.append("")
+
+        if 'C++' in str(skills.get('languages', [])):
+            lines.append("### C++基础")
+            lines.append("- [ ] 指针和引用的区别？")
+            lines.append("- [ ] 什么是内存泄漏？如何避免？")
+            lines.append("")
+
+        # 项目问题
+        lines.append("## 项目深挖")
         lines.append("")
+        for i, project in enumerate(projects[:3], 1):
+            lines.append(f"### 项目{i}: {project.get('name', '未命名')}")
+            lines.append(f"- [ ] 请介绍项目架构和技术选型")
+            lines.append(f"- [ ] 项目中遇到的最大挑战是什么？")
+            lines.append("")
 
-    if 'Unity' in str(skills['engines']):
-        lines.append("### Unity专项")
-        lines.append("- [ ] Unity生命周期函数的执行顺序？")
-        lines.append("- [ ] MonoBehaviour的原理？")
-        lines.append("- [ ] Resources.Load和Addressable的区别？")
-        lines.append("")
-
-    if 'C++' in str(skills['languages']):
-        lines.append("### C++基础")
-        lines.append("- [ ] 指针和引用的区别？")
-        lines.append("- [ ] 什么是内存泄漏？如何避免？")
-        lines.append("- [ ] 虚函数的作用？")
-        lines.append("")
-
-    # 薄弱环节验证
-    lines.append("### 薄弱环节验证")
-    for risk in analysis['risks'][:3]:
-        # 从风险点生成验证问题
-        if 'C++' in risk:
-            lines.append("- [ ] C++中智能指针有哪些类型？各有什么特点？")
-        elif 'Unity' in risk and 'C#' in risk:
-            lines.append("- [ ] 请写一个简单的Unity脚本示例")
-        elif '架构' in risk or '设计模式' in risk:
-            lines.append("- [ ] 项目中使用了哪些设计模式？单例模式的优缺点？")
-        elif '网络' in risk:
-            lines.append("- [ ] TCP和UDP的区别？游戏中如何选择？")
-        else:
-            lines.append(f"- [ ] 请详细说明：{risk.replace('需验证', '').replace('需确认', '')}")
+    # 面试流程指引
+    lines.append("---")
     lines.append("")
-
-    # 通用问题
-    lines.append("### 通用必问题")
-    lines.append("- [ ] 解释A*寻路算法的原理")
-    lines.append("- [ ] 如何实现一个对象池？有什么好处？")
+    lines.append("## 面试流程建议")
     lines.append("")
-
-    # 阶段4: 非技术素质
-    lines.append("## 阶段4: 非技术素质 (2分钟)")
-    lines.append("- [ ] 项目与他人合作有没有遇到过矛盾？如何处理？")
-    lines.append("- [ ] 合理安排需求的情况下，没做完的需求会如何处理？")
-    lines.append("- [ ] 工作过程中遇到不懂的问题会如何解决？")
-    lines.append("")
-
-    # 阶段5: 候选人提问
-    lines.append("## 阶段5: 候选人提问 (3分钟)")
-    lines.append("- [ ] 给候选人提问机会")
-    lines.append("- **候选人问题**: ___")
+    lines.append("| 阶段 | 时间 | 内容 |")
+    lines.append("|------|------|------|")
+    lines.append("| 自我介绍 | 2-3分钟 | 候选人背景了解 |")
+    lines.append("| 技能考察 | 15-20分钟 | 按技能维度提问 |")
+    lines.append("| 项目深挖 | 10-15分钟 | 针对具体项目追问 |")
+    lines.append("| 薄弱验证 | 5分钟 | 验证风险点 |")
+    lines.append("| 候选人提问 | 3-5分钟 | 回答候选人问题 |")
     lines.append("")
 
     # 评分记录表
@@ -1439,12 +1567,11 @@ def generate_question_list(parsed_data: Dict, analysis: Dict, output_dir: str) -
     lines.append("")
     lines.append("| 维度 | 权重 | 得分 | 备注 |")
     lines.append("|------|------|------|------|")
-    lines.append("| 技术能力 | 35% | ___ | Unity/C#/架构 |")
-    lines.append("| 项目经验 | 25% | ___ | 项目深度/复杂度 |")
-    lines.append("| 算法基础 | 15% | ___ | 数据结构/算法 |")
-    lines.append("| 团队协作 | 10% | ___ | 沟通/协作意识 |")
-    lines.append("| 发展潜力 | 10% | ___ | 学习能力/视野 |")
-    lines.append("| 文化匹配 | 5% | ___ | 价值观/态度 |")
+    lines.append("| 技术深度 | 30% | ___ | 技能掌握程度 |")
+    lines.append("| 项目经验 | 25% | ___ | 项目复杂度/贡献 |")
+    lines.append("| 问题解决 | 20% | ___ | 分析和解决问题能力 |")
+    lines.append("| 基础知识 | 15% | ___ | 数据结构/算法/设计模式 |")
+    lines.append("| 沟通协作 | 10% | ___ | 表达/团队协作意识 |")
     lines.append("| **总分** | **100%** | ___ | |")
     lines.append("")
 
