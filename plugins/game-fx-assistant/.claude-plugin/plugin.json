@@ -1,0 +1,8 @@
+{
+    "name": "game-fx-assistant",
+    "description": "A plugin to assist with game FX development",
+    "version": "1.0.0",
+    "author": {
+        "name": "Zewei Zhuang"
+    }
+}

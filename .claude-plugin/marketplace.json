@@ -13,6 +13,11 @@
       "name": "git-review",
       "source": "./plugins/git-review",
       "description": "A plugin to review the git commit message"
+    },
+    {
+      "name": "game-fx-assistant",
+      "source": "./plugins/game-fx-assistant",
+      "description": "A plugin to assist with game FX development"
     }
   ]
 }
