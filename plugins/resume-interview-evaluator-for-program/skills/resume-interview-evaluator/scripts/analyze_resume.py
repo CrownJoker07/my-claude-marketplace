@@ -389,9 +389,333 @@ def extract_projects(text: str) -> List[Dict]:
             if tech in proj_text:
                 project['tech_stack'].append(tech)
 
+        # 提取技术亮点
+        tech_highlights = extract_tech_highlights(proj_text, project['tech_stack'])
+
+        # 提取个人贡献
+        personal_contribution = extract_personal_contribution(proj_text)
+
+        # 提取项目详细信息
+        project_details = extract_project_details(proj_text)
+        project['project_scale'] = project_details.get('project_scale', '')
+        project['development_time'] = project_details.get('development_time', '')
+        project['team_size'] = project_details.get('team_size', '')
+        project['core_systems'] = project_details.get('core_systems', [])
+        project['tech_highlights'] = tech_highlights
+        project['personal_contribution'] = personal_contribution
+
+        # 分析项目复杂度
+        complexity_result = analyze_project_complexity(project)
+        project['complexity_score'] = complexity_result['score']
+        project['complexity_level'] = complexity_result['level']
+        project['complexity_reason'] = complexity_result['reason']
+
         projects.append(project)
 
     return projects
+
+
+def extract_project_details(proj_text: str) -> Dict:
+    """
+    提取项目详细信息
+    - 开发周期、团队规模
+    - 核心系统（战斗系统、AI系统、网络同步、UI系统等）
+    - 项目规模指标
+    """
+    details = {
+        'project_scale': '',
+        'development_time': '',
+        'team_size': '',
+        'core_systems': []
+    }
+
+    # 提取开发周期
+    time_patterns = [
+        r'(?:开发周期|项目周期|时间)[：:]\s*([^\n]+)',
+        r'(\d{4}[\.\-/]\d{1,2})\s*[-~至]\s*(\d{4}[\.\-/]\d{1,2}|至今)',
+        r'(\d{4})\s*年\s*(\d{1,2})\s*月\s*[-~至]\s*(\d{4})\s*年\s*(\d{1,2})\s*月',
+        r'(\d{4}\.\d{1,2})\s*-\s*(\d{4}\.\d{1,2}|至今)',
+    ]
+    for pattern in time_patterns:
+        time_match = re.search(pattern, proj_text)
+        if time_match:
+            details['development_time'] = time_match.group(0).strip()
+            break
+
+    # 提取团队规模
+    team_patterns = [
+        r'(?:团队规模|团队人数|团队)[：:]\s*(\d+)\s*人',
+        r'团队\s*(\d+)\s*人',
+        r'(\d+)\s*人团队',
+        r'(?:团队|项目组)(?:规模)?[：:]?\s*(\d+)[\s人]',
+    ]
+    for pattern in team_patterns:
+        team_match = re.search(pattern, proj_text)
+        if team_match:
+            details['team_size'] = team_match.group(1) + '人'
+            break
+
+    # 提取核心系统
+    system_keywords = {
+        '战斗系统': ['战斗系统', '战斗', '技能系统', '连招', '打击感'],
+        'AI系统': ['AI系统', '行为树', '状态机', '寻路', 'Navigation', 'NPC行为'],
+        '网络同步': ['网络同步', '帧同步', '状态同步', '服务器', '联机', '多人'],
+        'UI系统': ['UI系统', '界面', 'UGUI', 'FairyGUI', 'UI框架'],
+        '资源管理': ['资源管理', 'AssetBundle', 'Addressable', '热更新', '资源加载'],
+        '物理系统': ['物理系统', '碰撞检测', '刚体', 'Physics'],
+        '渲染系统': ['渲染', 'Shader', '后处理', '光照', '材质'],
+        '音频系统': ['音频', '音效', 'Wwise', 'FMOD', '声音'],
+        '动画系统': ['动画', 'Animation', 'Animator', '动作', '骨骼'],
+        '剧情系统': ['剧情', '对话系统', '任务系统', '叙事'],
+        '经济系统': ['经济系统', '商城', '充值', '货币'],
+    }
+    for system, keywords in system_keywords.items():
+        if any(kw in proj_text for kw in keywords):
+            details['core_systems'].append(system)
+
+    # 提取项目规模
+    scale_indicators = []
+    if '日活' in proj_text or 'DAU' in proj_text or '用户' in proj_text:
+        scale_match = re.search(r'(?:日活|DAU|用户)[：:]?\s*([\d\w]+)', proj_text)
+        if scale_match:
+            scale_indicators.append(f"用户规模: {scale_match.group(1)}")
+    if any(kw in proj_text for kw in ['同时在线', '并发']):
+        scale_match = re.search(r'(?:同时在线|并发)[：:]?\s*([\d\w]+)', proj_text)
+        if scale_match:
+            scale_indicators.append(f"并发: {scale_match.group(1)}")
+
+    if scale_indicators:
+        details['project_scale'] = '，'.join(scale_indicators)
+
+    return details
+
+
+def extract_tech_highlights(proj_text: str, tech_stack: List[str]) -> List[str]:
+    """
+    提取技术亮点
+    - 识别"实现了/开发了/设计了/优化了"等关键词
+    - 提取性能数据（提升X%、降低X毫秒）
+    - 识别创新点（自定义、自研、独创）
+    """
+    highlights = []
+
+    # 技术实现关键词
+    implementation_patterns = [
+        r'(?:实现了|开发了|设计了|搭建了|完成了|构建了)([^，。\n]{5,100})',
+        r'(?:基于|使用|采用)([^，。\n]{3,50})(?:实现了|开发了|完成了)([^，。\n]{5,80})',
+        r'(?:独立|负责|主导)([^，。\n]{5,100})',
+    ]
+
+    for pattern in implementation_patterns:
+        matches = re.findall(pattern, proj_text)
+        for match in matches:
+            if isinstance(match, tuple):
+                highlight = ''.join(match).strip()
+            else:
+                highlight = match.strip()
+            if len(highlight) > 10 and len(highlight) < 150:
+                # 过滤掉非技术描述
+                if any(tech in highlight for tech in tech_stack + ['系统', '框架', '优化', '性能', '算法']):
+                    highlights.append(highlight)
+
+    # 提取性能优化数据
+    perf_patterns = [
+        r'(?:性能|效率|帧率|内存|加载)[^，。\n]*(?:提升|提高|优化|降低|减少)[^，。\n]*(?:\d+%?|\d+ms?|\d+秒?|X+倍?)',
+        r'(?:提升|提高|优化|降低|减少)[^，。\n]*(?:\d+%?|\d+ms?|\d+秒?|X+倍?)[^，。\n]*(?:性能|效率|帧率|内存|加载)',
+        r'(?:帧率|FPS)[^，。\n]*(?:提升|达到)[^，。\n]*\d+',
+        r'(?:Draw ?Call|DC)[^，。\n]*(?:减少|降低|优化)[^，。\n]*\d+',
+    ]
+    for pattern in perf_patterns:
+        perf_matches = re.findall(pattern, proj_text, re.IGNORECASE)
+        for match in perf_matches:
+            highlight = match.strip()
+            if highlight and highlight not in highlights:
+                highlights.append(f"性能优化: {highlight}")
+
+    # 提取创新点
+    innovation_keywords = ['自定义', '自研', '独创', '自主研发', '从零搭建', '架构设计']
+    for keyword in innovation_keywords:
+        pattern = rf'{keyword}([^，。\n]{{5,80}})'
+        matches = re.findall(pattern, proj_text)
+        for match in matches:
+            highlight = f"{keyword}{match.strip()}"
+            if highlight not in highlights:
+                highlights.append(highlight)
+
+    # 去重并限制数量
+    unique_highlights = []
+    for h in highlights:
+        h_clean = re.sub(r'\s+', '', h)
+        if not any(re.sub(r'\s+', '', existing) == h_clean for existing in unique_highlights):
+            unique_highlights.append(h)
+
+    return unique_highlights[:6]  # 最多返回6个亮点
+
+
+def extract_personal_contribution(proj_text: str) -> List[str]:
+    """
+    提取个人贡献
+    - 识别"负责/主导/独立/参与"等职责描述
+    - 提取第一人称描述
+    - 识别具体成果数据
+    """
+    contributions = []
+
+    # 职责描述模式
+    responsibility_patterns = [
+        r'(?:负责|主导|独立|带领|参与|协助|配合)([^，。\n]{5,100})',
+        r'(?:我|本人)(?:负责|主导|独立|参与|完成|实现)([^，。\n]{5,100})',
+        r'(?:担任|作为)([^，。\n]{3,20})(?:负责|主导|参与)([^，。\n]{5,80})',
+    ]
+
+    for pattern in responsibility_patterns:
+        matches = re.findall(pattern, proj_text)
+        for match in matches:
+            if isinstance(match, tuple):
+                contribution = ''.join(match).strip()
+            else:
+                contribution = match.strip()
+            if len(contribution) > 5 and len(contribution) < 120:
+                contributions.append(contribution)
+
+    # 提取具体成果（包含数字）
+    achievement_patterns = [
+        r'(?:完成|实现|交付|上线)[^，。\n]*(?:\d+)[^，。\n]*(?:个|项|套|版|功能|模块|系统)',
+        r'(?:优化|改进)[^，。\n]*(?:\d+)[^，。\n]*(?:处|个|项|问题|Bug)',
+        r'(?:节约|节省|减少)[^，。\n]*(?:\d+)[^，。\n]*(?:时间|成本|人力|资源)',
+    ]
+    for pattern in achievement_patterns:
+        matches = re.findall(pattern, proj_text)
+        for match in matches:
+            if match.strip() and match.strip() not in contributions:
+                contributions.append(match.strip())
+
+    # 去重
+    unique_contributions = []
+    for c in contributions:
+        c_clean = re.sub(r'\s+', '', c)
+        if not any(re.sub(r'\s+', '', existing) == c_clean for existing in unique_contributions):
+            unique_contributions.append(c)
+
+    return unique_contributions[:5]  # 最多返回5个贡献点
+
+
+def analyze_project_complexity(project: Dict) -> Dict:
+    """
+    基于多维度评估项目复杂度
+    - 技术栈丰富度 (20%)
+    - 系统复杂度 (25%)
+    - 项目规模 (20%)
+    - 技术亮点 (20%)
+    - 描述完整度 (15%)
+    返回复杂度等级和评估理由
+    """
+    score = 0
+    reasons = []
+
+    # 1. 技术栈丰富度 (最高20分)
+    tech_count = len(project.get('tech_stack', []))
+    if tech_count >= 5:
+        score += 20
+        reasons.append('技术栈丰富')
+    elif tech_count >= 3:
+        score += 15
+        reasons.append('技术栈较丰富')
+    elif tech_count >= 1:
+        score += 8
+    else:
+        reasons.append('技术栈单一')
+
+    # 2. 系统复杂度 (最高25分)
+    core_systems = project.get('core_systems', [])
+    system_count = len(core_systems)
+    if system_count >= 4:
+        score += 25
+        reasons.append(f'涉及{system_count}个核心系统')
+    elif system_count >= 2:
+        score += 18
+        reasons.append(f'涉及{system_count}个核心系统')
+    elif system_count >= 1:
+        score += 10
+    else:
+        reasons.append('未明确核心系统')
+
+    # 3. 项目规模 (最高20分)
+    scale_score = 0
+    team_size = project.get('team_size', '')
+    if team_size:
+        team_num = re.search(r'(\d+)', team_size)
+        if team_num:
+            num = int(team_num.group(1))
+            if num >= 10:
+                scale_score = 20
+                reasons.append('团队规模较大')
+            elif num >= 5:
+                scale_score = 15
+            elif num >= 3:
+                scale_score = 10
+            else:
+                scale_score = 5
+
+    dev_time = project.get('development_time', '')
+    if dev_time and ('年' in dev_time or re.search(r'\d+\s*个月', dev_time)):
+        if scale_score < 15:
+            scale_score = 15
+        if '开发周期长' not in reasons:
+            reasons.append('开发周期较长')
+
+    score += scale_score
+
+    # 4. 技术亮点 (最高20分)
+    highlights = project.get('tech_highlights', [])
+    highlight_count = len(highlights)
+    if highlight_count >= 4:
+        score += 20
+        reasons.append('技术亮点突出')
+    elif highlight_count >= 2:
+        score += 15
+        reasons.append('有技术亮点')
+    elif highlight_count >= 1:
+        score += 8
+    else:
+        reasons.append('缺少技术亮点描述')
+
+    # 5. 描述完整度 (最高15分)
+    desc_len = len(project.get('description', ''))
+    if desc_len >= 400:
+        score += 15
+    elif desc_len >= 200:
+        score += 10
+        if desc_len < 300:
+            reasons.append('项目描述可更详细')
+    elif desc_len >= 100:
+        score += 5
+        reasons.append('项目描述较简单')
+    else:
+        score += 2
+        reasons.append('项目描述过于简单')
+
+    # 确定复杂度等级
+    if score >= 75:
+        level = '高'
+    elif score >= 50:
+        level = '中等'
+    elif score >= 30:
+        level = '一般'
+    else:
+        level = '入门'
+
+    # 生成评估理由
+    if reasons:
+        reason_text = '，'.join(reasons[:3])  # 最多显示3个理由
+    else:
+        reason_text = '项目信息完整度一般'
+
+    return {
+        'score': min(score, 100),
+        'level': level,
+        'reason': reason_text
+    }
 
 
 def extract_work_experience(text: str) -> List[str]:
@@ -604,29 +928,71 @@ def generate_skill_report(parsed_data: Dict, analysis: Dict, output_dir: str) ->
 
     for i, project in enumerate(parsed_data['projects'][:3], 1):  # 最多3个项目
         lines.append(f"### 项目{i}: {project['name']}")
-        lines.append(f"- **类型**: {project['type']}")
-        lines.append(f"- **职责**: {project['role'] or '未明确'}")
+        lines.append(f"- **项目类型**: {project.get('type', '游戏项目')}")
+        lines.append(f"- **担任角色**: {project.get('role') or '未明确'}")
 
-        # 技术亮点
-        if project['tech_stack']:
+        # 团队规模和开发周期
+        if project.get('team_size'):
+            lines.append(f"- **团队规模**: {project['team_size']}")
+        if project.get('development_time'):
+            lines.append(f"- **开发周期**: {project['development_time']}")
+
+        # 项目规模
+        if project.get('project_scale'):
+            lines.append(f"- **项目规模**: {project['project_scale']}")
+
+        lines.append("")
+
+        # 项目描述（截取前200字符）
+        desc = project.get('description', '')
+        if desc:
+            desc_short = desc[:200] + '...' if len(desc) > 200 else desc
+            lines.append(f"**项目描述**: {desc_short}")
+            lines.append("")
+
+        # 技术栈
+        if project.get('tech_stack'):
             lines.append(f"- **技术栈**: {', '.join(project['tech_stack'])}")
 
+        # 核心系统
+        if project.get('core_systems'):
+            lines.append(f"- **核心系统**: {', '.join(project['core_systems'])}")
+
+        lines.append("")
+
+        # 技术亮点
+        tech_highlights = project.get('tech_highlights', [])
+        if tech_highlights:
+            lines.append("**技术亮点**:")
+            for highlight in tech_highlights[:4]:  # 最多显示4个亮点
+                lines.append(f"  - {highlight}")
+            lines.append("")
+
+        # 个人贡献
+        contributions = project.get('personal_contribution', [])
+        if contributions:
+            lines.append("**个人贡献**:")
+            for contrib in contributions[:3]:  # 最多显示3个贡献点
+                lines.append(f"  - {contrib}")
+            lines.append("")
+
         # 复杂度评估
-        desc_len = len(project['description'])
-        if desc_len > 300:
-            complexity = '高'
-        elif desc_len > 150:
-            complexity = '中等'
-        else:
-            complexity = '入门'
-        lines.append(f"- **复杂度评估**: {complexity}")
+        complexity_level = project.get('complexity_level', '未知')
+        complexity_reason = project.get('complexity_reason', '')
+        lines.append(f"- **复杂度评估**: {complexity_level}")
+        if complexity_reason:
+            lines.append(f"- **评估理由**: {complexity_reason}")
 
         # 风险点
         risks = []
-        if not project['role']:
+        if not project.get('role'):
             risks.append('职责描述不清晰')
-        if desc_len < 100:
+        if len(desc) < 100:
             risks.append('项目描述过于简单')
+        if not tech_highlights:
+            risks.append('缺少技术亮点描述')
+        if not contributions:
+            risks.append('缺少个人贡献说明')
         if risks:
             lines.append(f"- **风险点**: {'; '.join(risks)}")
 
