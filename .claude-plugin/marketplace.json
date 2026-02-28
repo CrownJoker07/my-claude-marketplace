@@ -8,6 +8,11 @@
       "name": "resume-interview-evaluator-for-program",
       "source": "./plugins/resume-interview-evaluator-for-program",
       "description": "A plugin to evaluate the resume and interview for program candidates"
+    },
+    {
+      "name": "git-review",
+      "source": "./plugins/git-review",
+      "description": "A plugin to review the git commit message"
     }
   ]
 }
