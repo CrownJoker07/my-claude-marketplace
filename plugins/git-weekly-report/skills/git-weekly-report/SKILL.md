@@ -22,7 +22,7 @@ description: 自动生成Git仓库的周报，按提交人分类总结工作内�
 在Git仓库目录下运行技能：
 
 ```
-/weekly-report
+/git-weekly-report
 ```
 
 这将自动生成本周（周一到周日）的周报。
@@ -30,77 +30,66 @@ description: 自动生成Git仓库的周报，按提交人分类总结工作内�
 ### 自定义时间范围
 
 ```
-/weekly-report --since 2024-01-01 --until 2024-01-07
+/git-weekly-report --since 2024-01-01 --until 2024-01-07
 ```
 
 ### 指定输出文件
 
 ```
-/weekly-report --output my-report.md
+/git-weekly-report --output my-report.md
 ```
 
 ## 工作流程
 
-1. **收集提交数据**：运行 `scripts/collect_commits.py` 收集指定时间范围内的Git提交记录
-2. **生成Markdown报告**：运行 `scripts/generate_report.py` 将JSON数据转换为格式化的Markdown周报
-3. **输出结果**：生成包含总体统计、个人工作摘要、提交详情的完整周报
+1. **确定时间范围**：计算本周一时间范围（周一到周日），或解析用户指定的时间
+2. **获取提交数据**：使用 Bash 工具执行 `git log` 命令获取指定时间范围内的提交记录
+3. **解析提交记录**：按提交人分组，统计每个人的提交数量、代码变更等
+4. **分析工作内容**：AI 分析每个提交人的提交信息，智能总结工作内容
+5. **生成Markdown报告**：输出格式化的周报文档
 
-## 脚本说明
+## Git 命令格式
 
-### collect_commits.py
+使用以下命令获取提交数据：
 
-收集Git提交数据并输出JSON格式。
-
-**参数：**
-- `--since`: 开始日期（YYYY-MM-DD，可选，默认本周一）
-- `--until`: 结束日期（YYYY-MM-DD，可选，默认本周日）
-- `--output`: 输出JSON文件路径（默认: commits.json）
-
-**示例：**
 ```bash
-python scripts/collect_commits.py --since 2024-01-01 --until 2024-01-07 --output commits.json
+git log --since="YYYY-MM-DD 00:00:00" --until="YYYY-MM-DD 23:59:59" --pretty=format:"%H|%an|%ad|%s" --date=short --numstat
 ```
 
-**输出JSON格式：**
-```json
-{
-  "period": {"since": "2024-01-01", "until": "2024-01-07"},
-  "authors": {
-    "张三": {
-      "commits": [...],
-      "stats": {"total_commits": 5, "files_changed": 10, "insertions": 100, "deletions": 20},
-      "commit_types": {"feat": 2, "fix": 1, "docs": 1, "refactor": 1}
-    }
-  },
-  "overall_stats": {...}
-}
-```
+或获取简略格式：
 
-### generate_report.py
-
-将JSON数据转换为Markdown格式周报。
-
-**参数：**
-- `--input`: 输入JSON文件路径（默认: commits.json）
-- `--output`: 输出Markdown文件路径（默认: weekly-report.md）
-
-**示例：**
 ```bash
-python scripts/generate_report.py --input commits.json --output weekly-report.md
+git log --since="YYYY-MM-DD 00:00:00" --until="YYYY-MM-DD 23:59:59" --pretty=format:"[%h] %an %ad: %s" --date=short
 ```
 
-**输出Markdown结构：**
-- 总体统计（总提交数、活跃贡献者、代码变更量）
-- 团队工作摘要
-- 每个提交人的详细报告：
-  - 工作概览（自动总结）
-  - 提交统计
-  - 提交类型分布
-  - 提交详情表格
+获取提交统计信息：
+
+```bash
+git log --since="YYYY-MM-DD 00:00:00" --until="YYYY-MM-DD 23:59:59" --pretty=format:"%H" | xargs -I {} git show --stat --format="" {}
+```
+
+## 报告格式
+
+生成的Markdown报告包含以下部分：
+
+1. **总体统计**
+   - 时间范围
+   - 总提交数
+   - 活跃贡献者数量
+   - 代码变更统计（新增/删除行数）
+
+2. **团队工作摘要**
+   - 按提交数量排序的贡献者列表
+   - 每个人的主要工作类型分布
+
+3. **个人详细报告**（每个提交人）
+   - 工作概览（AI智能总结）
+   - 提交统计（提交数、文件变更、代码变更）
+   - 提交类型分布
+   - 提交详情表格
 
 ## 支持的提交类型
 
-脚本会自动识别以下类型的提交：
+自动识别以下类型的提交：
 
 | 类型 | 说明 |
 |------|------|
@@ -116,6 +105,18 @@ python scripts/generate_report.py --input commits.json --output weekly-report.md
 | ci | CI/CD |
 | revert | 回滚 |
 | other | 其他 |
+
+## 分析指南
+
+在分析提交记录时：
+
+1. **提取提交信息**：从git log输出中解析提交hash、作者、日期、提交信息
+2. **识别提交类型**：根据提交信息前缀（feat/fix/docs等）分类
+3. **统计代码变更**：分析 `--numstat` 或 `--stat` 输出，统计文件变更数、新增/删除行数
+4. **生成工作概览**：
+   - 汇总每个提交人的所有提交信息
+   - 识别主要工作方向（功能开发/问题修复/文档更新等）
+   - 用简洁的语言总结工作成果
 
 ## 使用建议
 
