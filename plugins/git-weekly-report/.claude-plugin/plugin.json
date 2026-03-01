@@ -1,0 +1,8 @@
+{
+  "name": "git-weekly-report",
+  "description": "自动生成Git仓库的周报，按提交人分类总结工作内容，支持自定义时间范围和Markdown格式输出",
+  "version": "1.0.0",
+  "author": {
+    "name": "ZZW"
+  }
+}
